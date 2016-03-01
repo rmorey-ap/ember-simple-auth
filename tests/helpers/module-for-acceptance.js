@@ -15,13 +15,13 @@ export default function(name, options = {}) {
     },
 
     afterEach() {
-      destroyApp(this.application);
-
       if (options.afterEach) {
         // jscs:disable requireSpread
         options.afterEach.apply(this, arguments);
         // jscs:enable requireSpread
       }
+
+      destroyApp(this.application);
     }
   });
 }
