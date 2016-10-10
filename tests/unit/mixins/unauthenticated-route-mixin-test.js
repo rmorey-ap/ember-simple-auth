@@ -6,8 +6,9 @@ import { expect } from 'chai';
 import sinon from 'sinon';
 import UnauthenticatedRouteMixin from 'ember-simple-auth/mixins/unauthenticated-route-mixin';
 import InternalSession from 'ember-simple-auth/internal-session';
-import Configuration from 'ember-simple-auth/configuration';
 import EphemeralStore from 'ember-simple-auth/session-stores/ephemeral';
+
+const { Mixin, RSVP, Route } = Ember;
 
 describe('UnauthenticatedRouteMixin', () => {
   let route;
@@ -16,24 +17,21 @@ describe('UnauthenticatedRouteMixin', () => {
 
   describe('#beforeModel', () => {
     beforeEach(() => {
-      const MixinImplementingBeforeModel = Ember.Mixin.create({
+      const MixinImplementingBeforeModel = Mixin.create({
         beforeModel() {
-          return Ember.RSVP.resolve('upstreamReturnValue');
+          return RSVP.resolve('upstreamReturnValue');
         }
-      });
-      const Route = Ember.Route.extend(MixinImplementingBeforeModel, UnauthenticatedRouteMixin, {
-        // replace actual transitionTo as the router isn't set up etc.
-        transitionTo() {}
       });
 
       session    = InternalSession.create({ store: EphemeralStore.create() });
       transition = {
-        abort() {},
         send() {}
       };
 
-      route = Route.create({ session });
-      sinon.spy(transition, 'abort');
+      route = Route.extend(MixinImplementingBeforeModel, UnauthenticatedRouteMixin, {
+        // replace actual transitionTo as the router isn't set up etc.
+        transitionTo() {}
+      }).create({ session });
       sinon.spy(route, 'transitionTo');
     });
 
@@ -42,16 +40,12 @@ describe('UnauthenticatedRouteMixin', () => {
         session.set('isAuthenticated', true);
       });
 
-      it('aborts the transition', () => {
-        route.beforeModel(transition);
-
-        expect(transition.abort).to.have.been.called;
-      });
-
       it('transitions to routeIfAlreadyAuthenticated', () => {
-        route.beforeModel(transition);
+        let routeIfAlreadyAuthenticated = 'path/to/route';
+        route.set('routeIfAlreadyAuthenticated', routeIfAlreadyAuthenticated);
 
-        expect(route.transitionTo).to.have.been.calledWith(Configuration.routeIfAlreadyAuthenticated);
+        route.beforeModel(transition);
+        expect(route.transitionTo).to.have.been.calledWith(routeIfAlreadyAuthenticated);
       });
 
       it('does not return the upstream promise', () => {
@@ -60,12 +54,6 @@ describe('UnauthenticatedRouteMixin', () => {
     });
 
     describe('if the session is not authenticated', () => {
-      it('does not abort the transition', () => {
-        route.beforeModel(transition);
-
-        expect(transition.abort).to.not.have.been.called;
-      });
-
       it('does not call route transitionTo', () => {
         route.beforeModel(transition);
 

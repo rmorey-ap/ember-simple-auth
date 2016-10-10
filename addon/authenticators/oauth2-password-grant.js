@@ -2,7 +2,22 @@
 import Ember from 'ember';
 import BaseAuthenticator from './base';
 
-const { RSVP, isEmpty, run, computed } = Ember;
+const {
+  RSVP,
+  isEmpty,
+  run,
+  computed,
+  makeArray,
+  assign: emberAssign,
+  merge,
+  A,
+  $: jQuery,
+  testing,
+  warn,
+  keys: emberKeys
+} = Ember;
+const assign = emberAssign || merge;
+const keys = Object.keys || emberKeys; // Ember.keys deprecated in 1.13
 
 /**
   Authenticator that conforms to OAuth 2
@@ -79,6 +94,28 @@ export default BaseAuthenticator.extend({
   */
   refreshAccessTokens: true,
 
+  /**
+    The offset time in milliseconds to refresh the access token. This must
+    return a random number. This randomization is needed because in case of
+    multiple tabs, we need to prevent the tabs from sending refresh token
+    request at the same exact moment.
+
+    __When overriding this property, make sure to mark the overridden property
+    as volatile so it will actually have a different value each time it is
+    accessed.__
+
+    @property refreshAccessTokens
+    @type Integer
+    @default a random number between 5 and 10
+    @public
+  */
+  tokenRefreshOffset: computed(function() {
+    const min = 5;
+    const max = 10;
+
+    return (Math.floor(Math.random() * min) + (max - min)) * 1000;
+  }).volatile(),
+
   _refreshTokenTimeout: null,
 
   _clientIdHeader: computed('clientId', function() {
@@ -89,6 +126,20 @@ export default BaseAuthenticator.extend({
       return { Authorization: `Basic ${base64ClientId}` };
     }
   }),
+
+  /**
+    When authentication fails, the rejection callback is provided with the whole
+    XHR object instead of it's response JSON or text.
+
+    This is useful for cases when the backend provides additional context not
+    available in the response body.
+
+    @property rejectWithXhr
+    @type Boolean
+    @default false
+    @public
+  */
+  rejectWithXhr: false,
 
   /**
     Restores the session from a session data object; __will return a resolving
@@ -119,7 +170,7 @@ export default BaseAuthenticator.extend({
           reject();
         }
       } else {
-        if (isEmpty(data['access_token'])) {
+        if (!this._validate(data)) {
           reject();
         } else {
           this._scheduleAccessTokenRefresh(data['expires_in'], data['expires_at'], data['refresh_token']);
@@ -150,28 +201,35 @@ export default BaseAuthenticator.extend({
     @param {String} identification The resource owner username
     @param {String} password The resource owner password
     @param {String|Array} scope The scope of the access request (see [RFC 6749, section 3.3](http://tools.ietf.org/html/rfc6749#section-3.3))
+    @param {Object} headers Optional headers that particular backends may require (for example sending 2FA challenge responses)
     @return {Ember.RSVP.Promise} A promise that when it resolves results in the session becoming authenticated
     @public
   */
-  authenticate(identification, password, scope = []) {
+  authenticate(identification, password, scope = [], headers = {}) {
     return new RSVP.Promise((resolve, reject) => {
       const data                = { 'grant_type': 'password', username: identification, password };
       const serverTokenEndpoint = this.get('serverTokenEndpoint');
-      const scopesString = Ember.makeArray(scope).join(' ');
-      if (!Ember.isEmpty(scopesString)) {
+      const useXhr = this.get('rejectWithXhr');
+      const scopesString = makeArray(scope).join(' ');
+      if (!isEmpty(scopesString)) {
         data.scope = scopesString;
       }
-      this.makeRequest(serverTokenEndpoint, data).then((response) => {
+      this.makeRequest(serverTokenEndpoint, data, headers).then((response) => {
         run(() => {
+          if (!this._validate(response)) {
+            reject('access_token is missing in server response');
+          }
+
           const expiresAt = this._absolutizeExpirationTime(response['expires_in']);
           this._scheduleAccessTokenRefresh(response['expires_in'], expiresAt, response['refresh_token']);
           if (!isEmpty(expiresAt)) {
-            response = Ember.merge(response, { 'expires_at': expiresAt });
+            response = assign(response, { 'expires_at': expiresAt });
           }
+
           resolve(response);
         });
       }, (xhr) => {
-        run(null, reject, xhr.responseJSON || xhr.responseText);
+        run(null, reject, useXhr ? xhr : (xhr.responseJSON || xhr.responseText));
       });
     });
   },
@@ -202,7 +260,7 @@ export default BaseAuthenticator.extend({
         success.apply(this, [resolve]);
       } else {
         const requests = [];
-        Ember.A(['access_token', 'refresh_token']).forEach((tokenType) => {
+        A(['access_token', 'refresh_token']).forEach((tokenType) => {
           const token = data[tokenType];
           if (!isEmpty(token)) {
             requests.push(this.makeRequest(serverTokenRevocationEndpoint, {
@@ -224,24 +282,30 @@ export default BaseAuthenticator.extend({
     @method makeRequest
     @param {String} url The request URL
     @param {Object} data The request data
+    @param {Object} headers Additional headers to send in request
     @return {jQuery.Deferred} A promise like jQuery.Deferred as returned by `$.ajax`
     @protected
   */
-  makeRequest(url, data) {
+  makeRequest(url, data, headers = {}) {
     const options = {
       url,
       data,
       type:        'POST',
       dataType:    'json',
-      contentType: 'application/x-www-form-urlencoded'
+      contentType: 'application/x-www-form-urlencoded',
+      headers
     };
 
     const clientIdHeader = this.get('_clientIdHeader');
     if (!isEmpty(clientIdHeader)) {
-      options.headers = clientIdHeader;
+      merge(options.headers, clientIdHeader);
     }
 
-    return Ember.$.ajax(options);
+    if (isEmpty(keys(options.headers))) {
+      delete options.headers;
+    }
+
+    return jQuery.ajax(options);
   },
 
   _scheduleAccessTokenRefresh(expiresIn, expiresAt, refreshToken) {
@@ -251,11 +315,11 @@ export default BaseAuthenticator.extend({
       if (isEmpty(expiresAt) && !isEmpty(expiresIn)) {
         expiresAt = new Date(now + expiresIn * 1000).getTime();
       }
-      const offset = (Math.floor(Math.random() * 5) + 5) * 1000;
+      const offset = this.get('tokenRefreshOffset');
       if (!isEmpty(refreshToken) && !isEmpty(expiresAt) && expiresAt > now - offset) {
         run.cancel(this._refreshTokenTimeout);
         delete this._refreshTokenTimeout;
-        if (!Ember.testing) {
+        if (!testing) {
           this._refreshTokenTimeout = run.later(this, this._refreshAccessToken, expiresIn, refreshToken, expiresAt - now - offset);
         }
       }
@@ -271,13 +335,13 @@ export default BaseAuthenticator.extend({
           expiresIn       = response['expires_in'] || expiresIn;
           refreshToken    = response['refresh_token'] || refreshToken;
           const expiresAt = this._absolutizeExpirationTime(expiresIn);
-          const data      = Ember.merge(response, { 'expires_in': expiresIn, 'expires_at': expiresAt, 'refresh_token': refreshToken });
+          const data      = assign(response, { 'expires_in': expiresIn, 'expires_at': expiresAt, 'refresh_token': refreshToken });
           this._scheduleAccessTokenRefresh(expiresIn, null, refreshToken);
           this.trigger('sessionDataUpdated', data);
           resolve(data);
         });
       }, (xhr, status, error) => {
-        Ember.Logger.warn(`Access token could not be refreshed - server responded with ${error}.`);
+        warn(`Access token could not be refreshed - server responded with ${error}.`);
         reject();
       });
     });
@@ -287,5 +351,9 @@ export default BaseAuthenticator.extend({
     if (!isEmpty(expiresIn)) {
       return new Date((new Date().getTime()) + expiresIn * 1000).getTime();
     }
+  },
+
+  _validate(data) {
+    return !isEmpty(data['access_token']);
   }
 });

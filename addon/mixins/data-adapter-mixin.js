@@ -1,6 +1,6 @@
 import Ember from 'ember';
 
-const { service } = Ember.inject;
+const { inject: { service }, Mixin, assert, isPresent } = Ember;
 
 /**
   __This mixin can be used to make Ember Data adapters authorize all outgoing
@@ -30,7 +30,7 @@ const { service } = Ember.inject;
   @public
 */
 
-export default Ember.Mixin.create({
+export default Mixin.create({
   /**
     The session service.
 
@@ -64,12 +64,15 @@ export default Ember.Mixin.create({
     specific header name and contents depend on the actual auhorizer that is
     used.
 
+    This method applies for Ember Data 2.6 and older. See `headersForRequest`
+    for newer versions of Ember Data.
+
     @method ajaxOptions
     @protected
   */
   ajaxOptions() {
     const authorizer = this.get('authorizer');
-    Ember.assert("You're using the DataAdapterMixin without specifying an authorizer. Please add `authorizer: 'authorizer:application'` to your adapter.", Ember.isPresent(authorizer));
+    assert("You're using the DataAdapterMixin without specifying an authorizer. Please add `authorizer: 'authorizer:application'` to your adapter.", isPresent(authorizer));
 
     let hash = this._super(...arguments);
     let { beforeSend } = hash;
@@ -86,6 +89,28 @@ export default Ember.Mixin.create({
   },
 
   /**
+    Adds request headers containing the authorization data as constructed
+    by the {{#crossLink "DataAdapterMixin/authorizer:property"}}{{/crossLink}}.
+
+    This method will only be called in Ember Data 2.7 or greater. Older versions
+    will rely on `ajaxOptions` for request header injection.
+
+    @method handleResponse
+    @protected
+   */
+  headersForRequest() {
+    const authorizer = this.get('authorizer');
+    assert("You're using the DataAdapterMixin without specifying an authorizer. Please add `authorizer: 'authorizer:application'` to your adapter.", isPresent(authorizer));
+
+    let headers = this._super(...arguments);
+    headers = Object(headers);
+    this.get('session').authorize(authorizer, (headerName, headerValue) => {
+      headers[headerName] = headerValue;
+    });
+    return headers;
+  },
+
+  /**
     This method is called for every response that the adapter receives from the
     API. If the response has a 401 status code it invalidates the session (see
     {{#crossLink "SessionService/invalidate:method"}}{{/crossLink}}).
@@ -95,13 +120,9 @@ export default Ember.Mixin.create({
     @protected
   */
   handleResponse(status) {
-    if (status === 401) {
-      if (this.get('session.isAuthenticated')) {
-        this.get('session').invalidate();
-      }
-      return true;
-    } else {
-      return this._super(...arguments);
+    if (status === 401 && this.get('session.isAuthenticated')) {
+      this.get('session').invalidate();
     }
+    return this._super(...arguments);
   }
 });

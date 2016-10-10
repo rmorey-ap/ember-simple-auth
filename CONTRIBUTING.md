@@ -33,15 +33,16 @@ Here's a few steps to follow to make sure your pull request gets accepted:
 3. Adhere to Ember Simple Auth's coding style; while there's no official style
   guide it should be clear by looking at the existing code what the agreed upon
   rules are.
-4. Stash all your commits into one before submitting the pull request so it's
+4. Squash all of your commits into one before submitting the pull request so it's
   easier to review them.
 5. Provide a good description for your pull request - what does it add, why is
   that needed etc.?
 
 ## Run Tests
 
-After you forked the repository run `npm install` and `bower install`.
+After you have forked the repository, run `npm install` and `bower install`.
 Also install [PhantomJS](http://phantomjs.org/) to run the tests.
 
-Afterwards you can run all tests with `ember test`. If you want to test your
-change against multiple versions of Ember and Ember Data run `ember try:testall`.
+To run tests against the currently installed Ember version, run `ember test`. To
+simulate a CI run -- testing multiple versions of Ember, Ember Data and the
+included addon generators -- run `npm test && npm run nodetest`.

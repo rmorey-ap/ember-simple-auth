@@ -1,3 +1,22 @@
+# 1.1.0
+
+There were no changes since 1.1.0-beta.5.
+
+# 1.1.0-beta.5
+
+* The session will now ignore session store events when it is currently
+  authenticating or restoring, see #965.
+
+# 1.1.0-beta.4
+
+* A critical bug in the cookie store causing an immediate logout after logging
+  in has been fixed, see #931.
+* A deprecation in Ember.js 2.5.0 was fixed, see #941.
+* The versions of Ember CLI used to build and develop the addon itself have
+  been updated to the latest release versions, see #936.
+* The README, API docs and contribution guidelines have been improved, see
+  #954, #947.
+
 # 1.1.0-beta.3
 
 * The `ember-cli-is-package-missing` package was added as a dependency

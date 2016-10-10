@@ -6,6 +6,8 @@ import { expect } from 'chai';
 import sinon from 'sinon';
 import DataAdapterMixin from 'ember-simple-auth/mixins/data-adapter-mixin';
 
+const { Object: EmberObject } = Ember;
+
 describe('DataAdapterMixin', () => {
   let adapter;
   let sessionService;
@@ -13,14 +15,19 @@ describe('DataAdapterMixin', () => {
 
   beforeEach(() => {
     hash = {};
-    sessionService = Ember.Object.create({
+    sessionService = EmberObject.create({
       authorize() {},
       invalidate() {}
     });
 
-    const BaseAdapter = Ember.Object.extend({
+    const BaseAdapter = EmberObject.extend({
       ajaxOptions() {
         return hash;
+      },
+      headersForRequest() {
+        return {
+          'X-Base-Header': 'is-still-respected'
+        };
       },
       handleResponse() {
         return '_super return value';
@@ -100,6 +107,83 @@ describe('DataAdapterMixin', () => {
     });
   });
 
+  describe('#headersForRequest', () => {
+    it('preserves existing headers by parent adapter', () => {
+      const headers = adapter.headersForRequest();
+
+      expect(headers).to.have.ownProperty('X-Base-Header');
+      expect(headers['X-Base-Header']).to.equal('is-still-respected');
+    });
+
+    describe('when the base adapter doesn\'t implement headersForRequest', () => {
+      beforeEach(() => {
+        hash = {};
+        sessionService = EmberObject.create({
+          authorize() {},
+          invalidate() {}
+        });
+
+        const Adapter = EmberObject.extend(DataAdapterMixin, {
+          authorizer: 'authorizer:some'
+        });
+        adapter = Adapter.create({ session: sessionService });
+      });
+
+      it('gracefully defaults to empty hash', () => {
+        const headers = adapter.headersForRequest();
+        expect(headers).to.deep.equal({});
+      });
+    });
+
+    it('asserts the presence of authorizer', () => {
+      adapter.set('authorizer', null);
+      expect(function() {
+        adapter.headersForRequest();
+      }).to.throw(/Assertion Failed/);
+    });
+
+    it('authorizes with the given authorizer', () => {
+      sinon.spy(sessionService, 'authorize');
+      adapter.headersForRequest();
+
+      expect(sessionService.authorize).to.have.been.calledWith('authorizer:some');
+    });
+
+    describe('when the authorizer calls the block', () => {
+      beforeEach(() => {
+        sinon.stub(sessionService, 'authorize', (authorizer, block) => {
+          block('X-Authorization-Header', 'an-auth-value');
+        });
+      });
+
+      it('adds a request header as given by the authorizer', () => {
+        const headers = adapter.headersForRequest();
+        expect(headers['X-Authorization-Header']).to.equal('an-auth-value');
+      });
+
+      it('still returns the base headers', () => {
+        const headers = adapter.headersForRequest();
+        expect(headers['X-Base-Header']).to.equal('is-still-respected');
+      });
+    });
+
+    describe('when the authorizer does not call the block', () => {
+      beforeEach(() => {
+        sinon.stub(sessionService, 'authorize');
+      });
+
+      it('does not add a request header', () => {
+        const headers = adapter.headersForRequest();
+        expect(headers).to.not.have.ownProperty('X-Authorization-Header');
+      });
+
+      it('still returns the base headers', () => {
+        const headers = adapter.headersForRequest();
+        expect(headers['X-Base-Header']).to.equal('is-still-respected');
+      });
+    });
+  });
+
   describe('#handleResponse', () => {
     beforeEach(() => {
       sinon.spy(sessionService, 'invalidate');
@@ -116,10 +200,6 @@ describe('DataAdapterMixin', () => {
 
           expect(sessionService.invalidate).to.have.been.calledOnce;
         });
-
-        it('returns true', () => {
-          expect(adapter.handleResponse(401)).to.be.true;
-        });
       });
 
       describe('when the session is not authenticated', () => {
@@ -132,10 +212,6 @@ describe('DataAdapterMixin', () => {
 
           expect(sessionService.invalidate).to.not.have.been.called;
         });
-
-        it('returns true', () => {
-          expect(adapter.handleResponse(401)).to.be.true;
-        });
       });
     });
 
@@ -145,10 +221,10 @@ describe('DataAdapterMixin', () => {
 
         expect(sessionService.invalidate).to.not.have.been.called;
       });
+    });
 
-      it("returns _super's return value", () => {
-        expect(adapter.handleResponse(200)).to.eq('_super return value');
-      });
+    it("returns _super's return value", () => {
+      expect(adapter.handleResponse(401)).to.eq('_super return value');
     });
   });
 });

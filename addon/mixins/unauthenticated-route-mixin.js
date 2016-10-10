@@ -1,7 +1,7 @@
 import Ember from 'ember';
 import Configuration from './../configuration';
 
-const { service } = Ember.inject;
+const { inject: { service }, Mixin, assert, computed } = Ember;
 
 /**
   __This mixin is used to make routes accessible only if the session is
@@ -23,7 +23,7 @@ const { service } = Ember.inject;
   @extends Ember.Mixin
   @public
 */
-export default Ember.Mixin.create({
+export default Mixin.create({
   /**
     The session service.
 
@@ -33,6 +33,20 @@ export default Ember.Mixin.create({
     @public
   */
   session: service('session'),
+
+  /**
+    The route to transition to if a route that implements the
+    {{#crossLink "UnauthenticatedRouteMixin"}}{{/crossLink}} is accessed when
+    the session is authenticated.
+
+    @property routeIfAlreadyAuthenticated
+    @type String
+    @default 'index'
+    @public
+  */
+  routeIfAlreadyAuthenticated: computed(function() {
+    return Configuration.routeIfAlreadyAuthenticated;
+  }),
 
   /**
     Checks whether the session is authenticated and if it is aborts the current
@@ -47,11 +61,10 @@ export default Ember.Mixin.create({
     @param {Transition} transition The transition that lead to this route
     @public
   */
-  beforeModel(transition) {
+  beforeModel() {
     if (this.get('session').get('isAuthenticated')) {
-      transition.abort();
-      Ember.assert('The route configured as Configuration.routeIfAlreadyAuthenticated cannot implement the UnauthenticatedRouteMixin mixin as that leads to an infinite transitioning loop!', this.get('routeName') !== Configuration.routeIfAlreadyAuthenticated);
-      this.transitionTo(Configuration.routeIfAlreadyAuthenticated);
+      assert('The route configured as Configuration.routeIfAlreadyAuthenticated cannot implement the UnauthenticatedRouteMixin mixin as that leads to an infinite transitioning loop!', this.get('routeName') !== this.get('routeIfAlreadyAuthenticated'));
+      this.transitionTo(this.get('routeIfAlreadyAuthenticated'));
     } else {
       return this._super(...arguments);
     }

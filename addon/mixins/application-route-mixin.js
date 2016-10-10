@@ -1,7 +1,7 @@
 import Ember from 'ember';
 import Configuration from './../configuration';
 
-const { inject } = Ember;
+const { inject, Mixin, A, run: { bind }, testing, computed } = Ember;
 
 /**
   The mixin for the application route; __defines methods that are called when
@@ -41,7 +41,7 @@ const { inject } = Ember;
   @extends Ember.Mixin
   @public
 */
-export default Ember.Mixin.create({
+export default Mixin.create({
   /**
     The session service.
 
@@ -52,17 +52,29 @@ export default Ember.Mixin.create({
   */
   session: inject.service('session'),
 
+  /**
+    The route to transition to after successful authentication.
+
+    @property routeAfterAuthentication
+    @type String
+    @default 'index'
+    @public
+  */
+  routeAfterAuthentication: computed(function() {
+    return Configuration.routeAfterAuthentication;
+  }),
+
   init() {
     this._super(...arguments);
     this._subscribeToSessionEvents();
   },
 
   _subscribeToSessionEvents() {
-    Ember.A([
+    A([
       ['authenticationSucceeded', 'sessionAuthenticated'],
       ['invalidationSucceeded', 'sessionInvalidated']
     ]).forEach(([event, method]) => {
-      this.get('session').on(event, Ember.run.bind(this, () => {
+      this.get('session').on(event, bind(this, () => {
         this[method](...arguments);
       }));
     });
@@ -87,7 +99,7 @@ export default Ember.Mixin.create({
       attemptedTransition.retry();
       this.set('session.attemptedTransition', null);
     } else {
-      this.transitionTo(Configuration.routeAfterAuthentication);
+      this.transitionTo(this.get('routeAfterAuthentication'));
     }
   },
 
@@ -107,7 +119,7 @@ export default Ember.Mixin.create({
     @public
   */
   sessionInvalidated() {
-    if (!Ember.testing) {
+    if (!testing) {
       window.location.replace(Configuration.baseURL);
     }
   }

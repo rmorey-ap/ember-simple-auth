@@ -8,6 +8,22 @@ const { computed } = Ember;
 
 const LOCAL_STORAGE_TEST_KEY = '_ember_simple_auth_test_key';
 
+const proxyToInternalStore = function() {
+  return computed({
+    get(key) {
+      return this.get(`_${key}`);
+    },
+    set(key, value) {
+      this.set(`_${key}`, value);
+      let _store = this.get('_store');
+      if (_store) {
+        _store.set(key, value);
+      }
+      return value;
+    }
+  });
+};
+
 /**
   Session store that persists data in the browser's `localStorage` (see
   {{#crossLink "LocalStorageStore"}}{{/crossLink}}) if that is available or in
@@ -28,10 +44,10 @@ export default Base.extend({
 
     @property localStorageKey
     @type String
-    @default 'ember_simple_auth:session'
+    @default 'ember_simple_auth-session'
     @public
   */
-  localStorageKey: 'ember_simple_auth:session',
+  localStorageKey: 'ember_simple_auth-session',
 
   /**
     The domain to use for the cookie if `localStorage` is not available, e.g.,
@@ -44,17 +60,19 @@ export default Base.extend({
     @default null
     @public
   */
-  cookieDomain: null,
+  _cookieDomain: null,
+  cookieDomain: proxyToInternalStore(),
 
   /**
     The name of the cookie to use if `localStorage` is not available.
 
     @property cookieName
     @type String
-    @default ember_simple_auth:session
+    @default ember_simple_auth-session
     @public
   */
-  cookieName: 'ember_simple_auth:session',
+  _cookieName: 'ember_simple_auth-session',
+  cookieName: proxyToInternalStore(),
 
   /**
     The expiration time for the cookie in seconds if `localStorage` is not
@@ -66,7 +84,8 @@ export default Base.extend({
     @type Integer
     @public
   */
-  cookieExpirationTime: null,
+  _cookieExpirationTime: null,
+  cookieExpirationTime: proxyToInternalStore(),
 
   _isLocalStorageAvailable: computed(function() {
     try {
